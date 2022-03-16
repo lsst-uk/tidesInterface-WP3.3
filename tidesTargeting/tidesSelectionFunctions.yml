@@ -1,0 +1,6 @@
+tidesSelect:
+    filters: ['g', 'r', 'i', 'z']
+    significance: 5
+    minBands: 2
+    minNights: 2
+    magLimit: 22.5
