@@ -1,6 +1,20 @@
-tidesSelect:
+tidesSNZTFSelect:
     filters: ['g', 'r', 'i', 'z']
     significance: 5
     minBands: 2
     minNights: 2
     magLimit: 22.5
+
+tidesSNLSSTSelect:
+    filters: ['g', 'r', 'i', 'z']
+    significance: 5
+    minBands: 3
+    minNights: 2
+    magLimit: 22.5
+
+tidesHostLSSTSelect:
+    filters: ['g', 'r', 'i', 'z']
+    significance: 5
+    minBands: 3
+    minNights: 2
+    magLimit: 23
