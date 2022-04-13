@@ -143,10 +143,10 @@ def plotLightCurve(name, lc, triggerDate=None, saveName=None):
     plt.errorbar(lc['jd'][rIDX & sigSatisfy], lc['magpsf'][rIDX & sigSatisfy], yerr=lc['sigmapsf'][rIDX & sigSatisfy], fmt='o', color='red', label='r')
 
     if sum(gIDX & ~sigSatisfy & ~nonDets)!=0:
-        plt.errorbar(lc['jd'][gIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][gIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][gIDX & ~sigSatisfy & ~nonDets], fmt='o', color='green', label='g < SNR',
+        plt.errorbar(lc['jd'][gIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][gIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][gIDX & ~sigSatisfy & ~nonDets], color='green', label='g < SNR',
     marker='x')
     if sum(rIDX & ~sigSatisfy& ~nonDets)!=0:
-        plt.errorbar(lc['jd'][rIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][rIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][rIDX & ~sigSatisfy & ~nonDets], fmt='o', color='red', label='r < SNR',
+        plt.errorbar(lc['jd'][rIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][rIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][rIDX & ~sigSatisfy & ~nonDets], color='red', label='r < SNR',
     marker='x')
     
     if triggerDate is not None:
