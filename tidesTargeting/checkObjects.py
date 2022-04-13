@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')
 import lasair
 import numpy as np
 import pandas as pd
@@ -80,10 +82,16 @@ ztfNames = np.unique(sn['ztfname'])
 #print(ztfNames)
 
 #I've hardcoded 50 into the chunksize to comply with the LAsair API query. 
-ztfNameChunks = list(splitIntoChunks(ztfNames, args.chunk))
+chunSize = args.chunk
+if args.chunk>50:
+    print('Max chunk size is 50.')
+    print('')
+    chunSize=50
+ztfNameChunks = list(splitIntoChunks(ztfNames, chunSize))
 
 print('Number of Chunks: ', len(ztfNameChunks))
 
+# This is hardcoded for ZTF, will need to be changed for LSST as more filters are added.
 filterDict = {1:'g', 2:'r', 'g':1, 'r':2}
 
 ##Lasair Acess Token
@@ -115,7 +123,7 @@ def lightcurveSatify(criteria,lightcurve):
     
     meetMinNight = len(np.unique(lightcurve['nid'][sigAndFilterBool])) >= minNights
     
-    meetMagLimit = min(lightcurve['magpsf']) < magLimit
+    meetMagLimit = min(lightcurve['magpsf']) <= magLimit
     
     if meetMinBands == meetMinNight == meetMagLimit == True:
         return True
@@ -153,9 +161,10 @@ def plotLightCurve(name, lc, triggerDate=None, saveName=None):
         plt.savefig(saveName, dpi=300, bbox_inches='tight')
 
 totalListPassFail = []
-
+totalDateTrigger = []
 for z in range(len(ztfNameChunks)):
     passFail = []
+    trigD = []
     ztfLoopIn = ztfNameChunks[z]
     c = L.lightcurves(ztfLoopIn)
     for i in range(len(c)): #Change the range to len(c)
@@ -163,6 +172,7 @@ for z in range(len(ztfNameChunks)):
         print(ztfN)
         if len(c[i])==0:
             passFail.append('No Data')
+            trigD.append(-9999)
             continue
         lc = pd.json_normalize(c[i])
         #print(lc)
@@ -179,13 +189,15 @@ for z in range(len(ztfNameChunks)):
             pf = np.array(list((map(lambda x: lightcurveSatify(inputCriteriaName, lc[lc['jd']<=x]), datesTest))))
             dateItPasses = min(datesTest[pf])
         else: 
-            dateItPasses = None
+            dateItPasses = -9999
         if makePlot:
-            plotLightCurve(str(ztfN),lc,triggerDate=dateItPasses, saveName='./testOutputFigures/'+str(ztfN)+'.png')
-            plt.savefig(args.output+str(ztfN)+'_LightcurveCheck.png', bbox_inches='tight')
+            plotLightCurve(str(ztfN),lc,triggerDate=dateItPasses, saveName=args.output+str(ztfN)+'.png')
+            #plt.savefig(args.output+str(ztfN)+'_LightcurveCheck.png', bbox_inches='tight')
             plt.close()
+        trigD.append(dateItPasses)
     totalListPassFail.append(passFail)
+    totalDateTrigger.append(trigD)
 
 
-listofObjectsPF = pd.DataFrame(np.column_stack((ztfNames,np.concatenate(totalListPassFail))), columns=['ZTFName', 'PassCut'])
-listofObjectsPF.to_csv(args.output+'PassFailCut.txt', index=False)
+listofObjectsPF = pd.DataFrame(np.column_stack((ztfNames,np.concatenate(totalListPassFail),np.concatenate(totalDateTrigger))), columns=['ZTFName', 'PassCut', 'TriggerDate'])
+listofObjectsPF.to_csv(args.output+'PassFailCut.csv', index=False)
