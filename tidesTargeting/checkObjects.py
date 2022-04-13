@@ -144,10 +144,10 @@ def plotLightCurve(name, lc, triggerDate=None, saveName=None):
 
     if sum(gIDX & ~sigSatisfy & ~nonDets)!=0:
         plt.errorbar(lc['jd'][gIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][gIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][gIDX & ~sigSatisfy & ~nonDets], color='green', label='g < SNR',
-    marker='x', linestyle=None)
+    marker='x', linestyle='')
     if sum(rIDX & ~sigSatisfy& ~nonDets)!=0:
         plt.errorbar(lc['jd'][rIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][rIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][rIDX & ~sigSatisfy & ~nonDets], color='red', label='r < SNR',
-    marker='x', linestyle=None)
+    marker='x', linestyle='')
     
     if triggerDate is not None:
         plt.axvline(triggerDate, ls='--', c='k', label='Trigger Date')
