@@ -12,12 +12,12 @@ The entirety of this code is written in the `Python` language, v3.8 was used, bu
 ### API Tokens
 Accessing Lasair services through either the Python library or API requires an authorisation token. For the purposes of this deliverable, the access token can be read from a YAML file or directly used as a command line argument. An example of the contents of a YAML access file is shown below, however this script only requires the `token` keyword.  For security reasons, files containing tokens should be kept away from main development or execution areas. The Lasair API token must be separately obtained from your username and password following the instruction here: [https://lasair-iris.roe.ac.uk/api](https://lasair-iris.roe.ac.uk/api)
 
-\begin{code}
+```
 lasair:
     username: LHamilton44
     password: 7xWDC0820
     token: Cb6442e76373g2M7bwjd738ae1c946d54b8f7993
-\end{code}
+```
 
 ## Example execution
 
