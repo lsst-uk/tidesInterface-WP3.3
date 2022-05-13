@@ -25,7 +25,26 @@ lasair:
 python checkObjects.py -k 7a635469bb489bd4b70f1bc7bf3f39cffaemmm2a -s /data/chris/tides/tidesInterface-WP3.3/tidesTargeting/tidesSelectionFunctions.yml -n tidesSNZTFSelect -i /data/chris/tides/tidesInterface-WP3.3/tidesTargeting/ztfIAListDemo.dat -o /data/chris/dev_output/Demo/ -p T -c 50
 ```
 
-### Docs
+### Output from example in command line
+```
+Plots will be saved in:  /data/chris/dev_output/Demo/
+These are your filter criteria:  {'filters': ['g', 'r', 'i', 'z'], 'significance': 5, 'minBands': 2, 'minNights': 2, 'magLimit': 22.5}
+Chunk Size: 50
+You have requested light curves for 10 objects from ZTF
+Number of Chunks:  1
+ZTF21aassamj
+ZTF21aceccve
+ZTF22aagzcai
+ZTF22aahaufu
+ZTF22aahhgue
+ZTF22aahhocd
+ZTF22aahhubz
+ZTF22aahhzqi
+ZTF22aahiyfc
+ZTF22aaidexe
+```
+
+## Docs
 ```
 Check the ZTF Objects using Lasair
 Usage:
