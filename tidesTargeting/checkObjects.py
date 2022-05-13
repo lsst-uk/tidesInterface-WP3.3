@@ -1,3 +1,21 @@
+"""Check the ZTF Objects using Lasair
+Usage:
+    checkObjects.py [--input=<PATH>] [--output=<PATH>] [--selection=<PATH>] [--name=<NAME>] [--key=<KEY>] [--chunk=<NUM>] [--plot=<BOOL>]
+    checkObjects.py -h | --help | --version
+
+Options:
+    -i PATH, --input=PATH      The full path to the list containing the ZTF objects.
+    -o PATH, --output=PATH     The full path to the output directory.
+    -s PATH, --selection=PATH  The full path to the YAML file containing the selection function criteria.
+    -n NAME, --name=NAME       The name of the selection function in the YAML file.
+    -k KEY, --key=KEY          Your Lasair access token key or path to the YAML file containing it.
+    -c NUM, --chunk=NUM        The number of objects to query at once. The Lasair API has a max of 50 objects per call. [default: 50]
+    -p BOOL, --plot=BOOL       Do you want to save light curve plots in in the output directory? [default: True]
+    -h --help                  Show this screen
+    --version                  Show version
+"""
+
+from docopt import docopt, DocoptExit
 import matplotlib
 matplotlib.use('Agg')
 import lasair
@@ -9,41 +27,51 @@ import argparse
 import os, sys
 from pathlib import Path
 import matplotlib.pyplot as plt
+import pprint
 
-## Argparse stuff to read in the commandline arguments
-parser = argparse.ArgumentParser()
-parser.add_argument('-in', '--input', help="Full path to the list of ZTF SNe to evaluate")
-parser.add_argument('-outdir', '--output', help="Full path to the output directory")
-parser.add_argument('-s', '--selection', help="Full path to the selection function YAML file")
-parser.add_argument('-n', '--name', help="Name of selection criteria within YAML file")
-parser.add_argument('-k', '--key', help="Either your Lasair access token or the YAML file your token is stored in")
-parser.add_argument('-c', '--chunk', nargs='?', default=50, type=int, help="The chunk size of your input target list. The Lasair API has a 50 object limit, set this number to be the maximum number of objects per API call. By default it is 50.")
-parser.add_argument('-p', '--plot', default=True, help="Do you want to save light curve plots?")
+args = docopt(__doc__, version="Lasair Check Objects v0.1") ## Using the docopt method of parsing args
 
+input = args['--input']
+output = args['--output']
+key = args['--key']
+plot = args['--plot']
+selection = args['--selection']
+name = args['--name']
+try:
+    chunk = int(args['--chunk'])
+except ValueError as ve:
+    print('The chunk must be an integer')
+    sys.exit(1)
 
-# Execute the parse_args() method
-args = parser.parse_args()
+if None in [input, output, key, selection, name]:
+    message = """
+    You must input at least:
+    --input=<PATH>
+    --output=<PATH>
+    --key=<KEY>
+    --selection=<PATH>
+    --name=<NAME>
+    """
+    print(message)
+    print(__doc__)
+    sys.exit(1)
 
-# Make the output directory
-Path(args.output).mkdir(parents=True, exist_ok=True)
+Path(output).mkdir(parents=True, exist_ok=True)
 
 ## Here we check if the user added a YAML file containing their password
 ## or if they added the key straight into the commandline
-apiInput = args.key
+apiInput = key
 if os.path.isfile(apiInput):
     keyOpen = yaml.load(open(apiInput), Loader=yaml.SafeLoader)
     token = keyOpen['lasair']['token']
 else:
     token = str(apiInput)
 
-#print(token)
 
-## Plots?
-
-if args.plot in ['True', 't', 'T', True]:
+if plot in ['True', 't', 'T', True]:
     makePlot = True
-    print('Plots will be saved in: ', str(args.output))
-elif args.plot in ['False', 'f', 'F', False]:
+    print('Plots will be saved in: ', str(output))
+elif plot in ['False', 'f', 'F', False]:
     makePlot=False
     print('No plots will be made.')
 else:
@@ -51,24 +79,20 @@ else:
     sys.exit(0)
 
 ##Open Input YAML File
-inputCriteriaPath = args.selection
+inputCriteriaPath = selection
 inputCriteriaOpen = yaml.load(open(inputCriteriaPath), Loader=yaml.SafeLoader)
-inputCriteriaName = inputCriteriaOpen[str(args.name)]
+inputCriteriaName = inputCriteriaOpen[str(name)]
 
 print('These are your filter criteria: ', inputCriteriaName)
 
-print('Chunk Size:', args.chunk)
+print('Chunk Size:', chunk)
 
 
 
 ##Open the test file for the ZTF Objects
-sn = pd.read_csv(str(args.input),header=None, names=['ztfname'])
+sn = pd.read_csv(str(input),header=None, names=['ztfname'])
 numZTFtest = len(sn['ztfname'])
 
-# We don't need this check because I have now implemented a script to chuknk up the input data
-# if numZTFtest>1000:
-#     print('Please request fewer than 1,000 objects. This is a Lasair query restriction')
-#     sys.exit()
 
 def splitIntoChunks(inLst, n):
     """The Lasair API can only handle 50 light curves a time.
@@ -82,8 +106,8 @@ ztfNames = np.unique(sn['ztfname'])
 #print(ztfNames)
 
 #I've hardcoded 50 into the chunksize to comply with the LAsair API query. 
-chunSize = args.chunk
-if args.chunk>50:
+chunSize = chunk
+if chunk>50:
     print('Max chunk size is 50.')
     print('')
     chunSize=50
@@ -149,7 +173,7 @@ def plotLightCurve(name, lc, triggerDate=None, saveName=None):
         plt.errorbar(lc['jd'][rIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][rIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][rIDX & ~sigSatisfy & ~nonDets], color='red', label='r < SNR',
     marker='x', linestyle='')
     
-    if triggerDate is not None:
+    if triggerDate!=-9999:
         plt.axvline(triggerDate, ls='--', c='k', label='Trigger Date')
     plt.gca().invert_yaxis()
     plt.title(name)
@@ -191,8 +215,8 @@ for z in range(len(ztfNameChunks)):
         else: 
             dateItPasses = -9999
         if makePlot:
-            plotLightCurve(str(ztfN),lc,triggerDate=dateItPasses, saveName=args.output+str(ztfN)+'.png')
-            #plt.savefig(args.output+str(ztfN)+'_LightcurveCheck.png', bbox_inches='tight')
+            plotLightCurve(str(ztfN),lc,triggerDate=dateItPasses, saveName=output+str(ztfN)+'.png')
+            #plt.savefig(output+str(ztfN)+'_LightcurveCheck.png', bbox_inches='tight')
             plt.close()
         trigD.append(dateItPasses)
     totalListPassFail.append(passFail)
@@ -200,4 +224,4 @@ for z in range(len(ztfNameChunks)):
 
 
 listofObjectsPF = pd.DataFrame(np.column_stack((ztfNames,np.concatenate(totalListPassFail),np.concatenate(totalDateTrigger))), columns=['ZTFName', 'PassCut', 'TriggerDate'])
-listofObjectsPF.to_csv(args.output+'PassFailCut.csv', index=False)
+listofObjectsPF.to_csv(output+'PassFailCut.csv', index=False)
