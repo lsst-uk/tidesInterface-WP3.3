@@ -13,6 +13,11 @@ Options:
     -p BOOL, --plot=BOOL       Do you want to save light curve plots in in the output directory? [default: True]
     -h --help                  Show this screen
     --version                  Show version
+
+#Example:
+#    python checkObjects.py -k 7a635469bb489bd4b70f1bc7bf3f39cffaemmm2a -s /data/chris/tidesSelectionFunctions.yml 
+#    -n tidesSNZTFSelect -i /data/chris/ztfIAListDemo.dat -o /data/chris/dev_output/Demo/ -p T -c 50
+#Note, the above key is jibberish. Please use your own Lasair token
 """
 
 from docopt import docopt
