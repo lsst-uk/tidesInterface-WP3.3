@@ -15,7 +15,7 @@ Options:
     --version                  Show version
 """
 
-from docopt import docopt, DocoptExit
+from docopt import docopt
 import matplotlib
 matplotlib.use('Agg')
 import lasair
@@ -23,7 +23,6 @@ import numpy as np
 import pandas as pd
 import json
 import yaml
-import argparse
 import os, sys
 from pathlib import Path
 import matplotlib.pyplot as plt
