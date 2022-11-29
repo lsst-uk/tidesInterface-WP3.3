@@ -120,7 +120,7 @@ ztfNameChunks = list(splitIntoChunks(ztfNames, chunSize))
 print('Number of Chunks: ', len(ztfNameChunks))
 
 # This is hardcoded for ZTF, will need to be changed for LSST as more filters are added.
-filterDict = {1:'g', 2:'r', 'g':1, 'r':2}
+filterDict = {1:'g', 2:'r', 3:'i', 'g':1, 'r':2, 'i':3}
 
 ##Lasair Acess Token
 L = lasair.lasair_client(token)
@@ -161,20 +161,26 @@ def lightcurveSatify(criteria,lightcurve):
 def plotLightCurve(name, lc, triggerDate=None, saveName=None):
     gIDX = lc['fid']==1
     rIDX = lc['fid']==2
+    iIDX = lc['fid']==3
     nonDets = lc['candid'].isna()
     sigSatisfy = 1.09/lc['sigmapsf'] >= inputCriteriaName['significance']
     if 'diffmaglim' in lc.columns:
         plt.scatter(lc['jd'][nonDets & gIDX], lc['diffmaglim'][nonDets & gIDX], marker='v', color='green', alpha=0.5)
         plt.scatter(lc['jd'][nonDets & rIDX], lc['diffmaglim'][nonDets & rIDX], marker='v', color='red', alpha=0.5)
+        plt.scatter(lc['jd'][nonDets & iIDX], lc['diffmaglim'][nonDets & iIDX], marker='v', color='yellow', alpha=0.5)
 
     plt.errorbar(lc['jd'][gIDX & sigSatisfy], lc['magpsf'][gIDX & sigSatisfy], yerr=lc['sigmapsf'][gIDX & sigSatisfy], fmt='o', color='green', label='g')
     plt.errorbar(lc['jd'][rIDX & sigSatisfy], lc['magpsf'][rIDX & sigSatisfy], yerr=lc['sigmapsf'][rIDX & sigSatisfy], fmt='o', color='red', label='r')
+    plt.errorbar(lc['jd'][iIDX & sigSatisfy], lc['magpsf'][iIDX & sigSatisfy], yerr=lc['sigmapsf'][iIDX & sigSatisfy], fmt='o', color='yellow', label='i')
 
     if sum(gIDX & ~sigSatisfy & ~nonDets)!=0:
         plt.errorbar(lc['jd'][gIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][gIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][gIDX & ~sigSatisfy & ~nonDets], color='green', label='g < SNR',
     marker='x', linestyle='')
     if sum(rIDX & ~sigSatisfy& ~nonDets)!=0:
         plt.errorbar(lc['jd'][rIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][rIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][rIDX & ~sigSatisfy & ~nonDets], color='red', label='r < SNR',
+    marker='x', linestyle='')
+    if sum(iIDX & ~sigSatisfy& ~nonDets)!=0:
+        plt.errorbar(lc['jd'][iIDX & ~sigSatisfy & ~nonDets], lc['magpsf'][iIDX & ~sigSatisfy & ~nonDets], yerr=lc['sigmapsf'][iIDX & ~sigSatisfy & ~nonDets], color='yellow', label='i < SNR',
     marker='x', linestyle='')
     
     if triggerDate!=-9999:
