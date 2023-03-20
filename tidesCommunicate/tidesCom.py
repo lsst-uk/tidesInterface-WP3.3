@@ -7,6 +7,7 @@ import yaml
 from random import randrange
 import pandas as pd
 import numpy as np
+import sys
 
 # This is hardcoded for ZTF, will need to be changed for LSST as more filters are added.
 filterDict = {1:'g', 2:'r', 3:'i', 'g':1, 'r':2, 'i':3}
@@ -49,10 +50,10 @@ def getLatestBatch(consumer):
     msg = consumer.poll(timeout=5) #The kafka poll will wait 5 seconds to hear back. If nothing is delivered the pipeline will end and only objects 
     if msg is None:
       print('no more transients')
-      break
+      return []
     if msg.error():
       print(str(msg.error()))
-      break
+      return []
     jmsg = json.loads(msg.value())
     recentObjects = pd.concat([recentObjects,pd.DataFrame(jmsg, columns=jmsg.keys(), index=[0])], ignore_index=True)
   return recentObjects
@@ -96,7 +97,33 @@ def lightcurveSatify(criteria,lightcurve):
     else:
         return False
 
-@flow
+@task
+def daskCheckLightcurves(ztfName, c):
+  if len(c)==0:
+    return(False)
+  lc = pd.json_normalize(c)
+  #print(lc)
+
+  nonDets = lc['candid'].isna()
+
+  
+  ##Does the whole object Pass/Fail our cuts
+  wholePF = lightcurveSatify(inputCriteriaName, lc)
+  
+  return(ztfName, wholePF)
+
+@flow(task_runner=DaskTaskRunner())
+def chunkyAssign(ztfNameChunks):
+  namePassFail = []
+  for chunk in ztfNameChunks:
+    c = L.lightcurves(chunk)
+    for idx in range(len(c)):
+      namePF = daskCheckLightcurves.submit(chunk[idx], c[idx])
+      namePassFail.append([namePF])
+  return namePassFail
+
+
+@flow#(task_runner=DaskTaskRunner())
 def checkChunksOfLightcurves(ztfLoopIn):
   passFail = []
   trigD = []
@@ -145,6 +172,9 @@ def executeCommPipe():
   consumer = lasair_consumer('kafka.lsst.ac.uk:9092', group_id, my_topic) ## Just accessing the Lasir interface to pull transients  
 
   latestTransients = getLatestBatch(consumer=consumer)
+  if len(latestTransients) == 0:
+    print('!!! No Transients !!!')
+    return None
   print('All transients: ', len(latestTransients))
   ztfNames = np.unique(latestTransients['objectId'])
   print('Unique transients: ', len(ztfNames))
@@ -153,7 +183,11 @@ def executeCommPipe():
   ztfNameChunks = list(splitIntoChunks(ztfNames, 10))
 
   print(ztfNameChunks)
-  print(list(map(checkChunksOfLightcurves, ztfNameChunks)))
+  #print(list(map(checkChunksOfLightcurves, ztfNameChunks)))
+
+  nPF = chunkyAssign(ztfNameChunks)
+  print(nPF)
+
 
 if __name__ == "__main__":
   lasairToken = loadLasairDetails('devConfig')
