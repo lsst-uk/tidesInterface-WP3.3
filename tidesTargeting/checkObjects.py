@@ -208,9 +208,8 @@ for z in range(len(ztfNameChunks)):
             passFail.append('No Data')
             trigD.append(-9999)
             continue
-        lc = pd.json_normalize(c[i])
-        #print(lc)
-        lc = lc['candidates']
+        lc = pd.json_normalize(c[i]['candidates'])
+                
 
         nonDets = lc['candid'].isna()
 
