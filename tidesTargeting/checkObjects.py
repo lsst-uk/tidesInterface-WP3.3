@@ -210,6 +210,7 @@ for z in range(len(ztfNameChunks)):
             continue
         lc = pd.json_normalize(c[i])
         #print(lc)
+        lc = lc['candidates']
 
         nonDets = lc['candid'].isna()
 
