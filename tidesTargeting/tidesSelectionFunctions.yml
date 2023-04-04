@@ -21,7 +21,7 @@ tidesHostLSSTSelect:
 
 tidesSNZTFSelectDEMO1:
     filters: ['g', 'r', 'i', 'z']
-    significance: 3
+    significance: 5
     minBands: 2
-    minNights: 3
+    minNights: 10
     magLimit: 22.5

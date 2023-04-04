@@ -40,6 +40,17 @@ def loadSelectionFunctionDetails(key):
   return functionPath, functionName
 
 @task
+def getDevBatch():
+  """
+  The Lasair Kafka stream sometimes goes down or ZTF isn't operational.
+  This isn't great for the development because it always happens at the worst time!
+  
+  In this funciton I just load up a text file and pretend its a datastream!
+  """
+  dataIn = pd.read_csv("../tidesTargeting/ztfIAListDemo.dat", names=['objectId'])
+  return dataIn
+
+@task
 def getLatestBatch(consumer):
   '''
   This task will query the topic and download the data in one batch
@@ -50,12 +61,14 @@ def getLatestBatch(consumer):
     msg = consumer.poll(timeout=5) #The kafka poll will wait 5 seconds to hear back. If nothing is delivered the pipeline will end and only objects 
     if msg is None:
       print('no more transients')
-      return []
+      break
+      
     if msg.error():
       print(str(msg.error()))
-      return []
+      break
     jmsg = json.loads(msg.value())
     recentObjects = pd.concat([recentObjects,pd.DataFrame(jmsg, columns=jmsg.keys(), index=[0])], ignore_index=True)
+  #print(recentObjects)
   return recentObjects
 
 @task
@@ -67,7 +80,7 @@ def splitIntoChunks(inLst, n):
         yield inLst[i:i + n]
 
 @task
-def lightcurveSatify(criteria,lightcurve):
+def lightcurveSatify(criteria,lightcurve, ztfname):
     '''
     Our paper states that the tides slection criteria is as follows:
     - only consider griz
@@ -75,6 +88,7 @@ def lightcurveSatify(criteria,lightcurve):
     - Must have 5sigma detections across 2 nights
     - Must reach brighter than 22.5mag
     '''
+    #print(lightcurve.columns)
     needFilters = criteria['filters']
     needSignificance = criteria['significance']
     minBands = criteria['minBands']
@@ -93,22 +107,22 @@ def lightcurveSatify(criteria,lightcurve):
     meetMagLimit = min(lightcurve['magpsf']) <= magLimit
     
     if meetMinBands == meetMinNight == meetMagLimit == True:
-        return True
+        return ztfname, True
     else:
-        return False
+        return ztfname, False
 
 @task
 def daskCheckLightcurves(ztfName, c):
   if len(c)==0:
     return(False)
   lc = pd.json_normalize(c)
-  #print(lc)
+  print(lc)
 
-  nonDets = lc['candid'].isna()
+  #nonDets = lc['candid'].isna()
 
   
   ##Does the whole object Pass/Fail our cuts
-  wholePF = lightcurveSatify(inputCriteriaName, lc)
+  wholePF = lightcurveSatify(inputCriteriaName, lc, ztfName)
   
   return(ztfName, wholePF)
 
@@ -117,9 +131,16 @@ def chunkyAssign(ztfNameChunks):
   namePassFail = []
   for chunk in ztfNameChunks:
     c = L.lightcurves(chunk)
+    
     for idx in range(len(c)):
-      namePF = daskCheckLightcurves.submit(chunk[idx], c[idx])
-      namePassFail.append([namePF])
+      #print(c[idx])
+      if len(c[idx])==0:
+        namePassFail.append([chunk[idx], False])
+        continue
+      else:
+        lc = c[idx]['candidates']
+        namePF = lightcurveSatify.submit(inputCriteriaName, pd.json_normalize(lc) ,chunk[idx])
+        namePassFail.append(namePF)
   return namePassFail
 
 
@@ -159,6 +180,11 @@ def checkChunksOfLightcurves(ztfLoopIn):
     # totalDateTrigger.append(trigD)
     # return totalListPassFail, totalDateTrigger
 
+@task
+def passFailResultsDFandMerge(rPF, latestT):
+  nPFdf = pd.DataFrame(rPF, columns=['Name','Pass'])
+  merged = latestT.merge(nPFdf, left_on='objectId', right_on='Name', how='left')
+  return merged
 
 @flow
 def executeCommPipe():
@@ -171,7 +197,9 @@ def executeCommPipe():
 
   consumer = lasair_consumer('kafka.lsst.ac.uk:9092', group_id, my_topic) ## Just accessing the Lasir interface to pull transients  
 
-  latestTransients = getLatestBatch(consumer=consumer)
+  latestTransients = getLatestBatch(consumer=consumer) ## (un)comment to use the real data stream.
+  #print(latestTransients)
+  #latestTransients = getDevBatch() ## Uncomment to use a test stream. i.e. Read a text file of objects
   if len(latestTransients) == 0:
     print('!!! No Transients !!!')
     return None
@@ -186,8 +214,13 @@ def executeCommPipe():
   #print(list(map(checkChunksOfLightcurves, ztfNameChunks)))
 
   nPF = chunkyAssign(ztfNameChunks)
-  print(nPF)
+  resultPassFail = [x.result() for x in nPF]
+  
+  mergedDF = passFailResultsDFandMerge(resultPassFail, latestTransients)
+  print(mergedDF)
 
+
+  
 
 if __name__ == "__main__":
   lasairToken = loadLasairDetails('devConfig')
