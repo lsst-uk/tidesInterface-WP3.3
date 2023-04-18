@@ -8,6 +8,9 @@ from random import randrange
 import pandas as pd
 import numpy as np
 import sys
+#from prefect_sqlalchemy import DatabaseCredentials, AsyncDriver
+import sqlalchemy
+from io import StringIO
 
 # This is hardcoded for ZTF, will need to be changed for LSST as more filters are added.
 filterDict = {1:'g', 2:'r', 3:'i', 'g':1, 'r':2, 'i':3}
@@ -39,6 +42,13 @@ def loadSelectionFunctionDetails(key):
   functionName = settingsOpen[key]['selectFunction']
   return functionPath, functionName
 
+def loadTiDESdbSettings(key):
+  settingsOpen = yaml.load(open('./flowSettings.yaml'), Loader=yaml.SafeLoader)
+  dbUsername = settingsOpen[key]['tidesDBUser']
+  dbPassword = settingsOpen[key]['tidesDBpass']
+  dbDatabase = settingsOpen[key]['tidesDBdatabase']
+  return dbUsername, dbPassword, dbDatabase
+
 @task
 def getDevBatch():
   """
@@ -68,8 +78,9 @@ def getLatestBatch(consumer):
       break
     jmsg = json.loads(msg.value())
     recentObjects = pd.concat([recentObjects,pd.DataFrame(jmsg, columns=jmsg.keys(), index=[0])], ignore_index=True)
+    recentUniqueObjects = recentObjects.sort_values("jdmax", ascending = False).drop_duplicates(subset=["objectId"], inplace=False, keep="first")
   #print(recentObjects)
-  return recentObjects
+  return recentUniqueObjects
 
 @task
 def splitIntoChunks(inLst, n):
@@ -186,6 +197,57 @@ def passFailResultsDFandMerge(rPF, latestT):
   merged = latestT.merge(nPFdf, left_on='objectId', right_on='Name', how='left')
   return merged
 
+
+
+
+@flow
+def sqlalchemy_credentials_flow():
+    dbUsername, dbPassword, dbDatabase = loadTiDESdbSettings('devConfig')
+    sqlalchemy_credentials = DatabaseCredentials(
+        driver=AsyncDriver.POSTGRESQL_ASYNCPG,
+        username=dbUsername,
+        password=dbPassword,
+        database=dbDatabase,
+        host="localhost",
+        port=5432,
+    )
+    print(sqlalchemy_credentials.get_engine())
+    return sqlalchemy_credentials.get_engine()
+
+@task
+def sqlalchmey_engine():
+  dbUsername, dbPassword, dbDatabase = loadTiDESdbSettings('devConfig')
+  url = 'postgresql+psycopg2://'+str(dbUsername)+':'+str(dbPassword)+'@localhost:5432/'+str(dbDatabase)
+  engine = sqlalchemy.create_engine(url)
+  return engine
+
+@task
+def createTransientStage(dataTable, cnx):
+  dataTable.columns = map(str.lower, dataTable.columns)
+  dataTable[dataTable['pass']==True].to_sql('tides_stage', con=cnx, if_exists='replace', index=False)
+  ## Below is faster when millions of rows, we are not at that stage
+  # dataTable.head(0)to_sql('tides_stage', con=cnx, index=False, if_exists='replace') # head(0) uses only the header
+  # # set index=False to avoid bringing the dataframe index in as a column 
+
+  # raw_con = cnx.raw_connection() # assuming you set up cnx as above
+  # cur  = raw_con.cursor()
+  # out = StringIO()
+
+  # # write just the body of your dataframe to a csv-like file object
+  # dataTable.to_csv(out, sep='\t', header=False, index=False) 
+
+  # out.seek(0) # sets the pointer on the file object to the first line
+  # contents = out.getvalue()
+  # cur.copy_from(out, 'table_name', null="") # copies the contents of the file object into the SQL cursor and sets null values to empty strings
+  # raw_con.commit()
+  
+@task
+def upsertToMaster(cnx):
+  query = open('upsertTiDESstage.sql', 'r')
+  cnx.execute(query.read())
+  query.close()
+
+
 @flow
 def executeCommPipe():
   my_topic, group_id =  loadTopicSettings('devConfig')
@@ -208,7 +270,7 @@ def executeCommPipe():
   print('Unique transients: ', len(ztfNames))
 
 
-  ztfNameChunks = list(splitIntoChunks(ztfNames, 10))
+  ztfNameChunks = list(splitIntoChunks(ztfNames, 50))
 
   print(ztfNameChunks)
   #print(list(map(checkChunksOfLightcurves, ztfNameChunks)))
@@ -216,9 +278,17 @@ def executeCommPipe():
   nPF = chunkyAssign(ztfNameChunks)
   resultPassFail = [x.result() for x in nPF]
   
-  mergedDF = passFailResultsDFandMerge(resultPassFail, latestTransients)
-  print(mergedDF)
+  print(len(ztfNameChunks), len(nPF), len(resultPassFail), len(latestTransients))
+  mergedDF = passFailResultsDFandMerge(resultPassFail, latestTransients) ## Pandas dataframe of all Lasair detections and pass/fail criteria
+  #print(mergedDF)
 
+  cnx = sqlalchmey_engine() ## Create the connection to the TiDES DB
+
+  createTransientStage(mergedDF, cnx) ## Create a temporary table for the recent detections
+
+  with cnx.connect() as conn, conn.begin() :
+    upsertToMaster(conn)
+    
 
   
 
