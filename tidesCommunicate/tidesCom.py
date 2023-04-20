@@ -87,9 +87,10 @@ def getLatestBatch(consumer):
       break
     jmsg = json.loads(msg.value())
     recentObjects = pd.concat([recentObjects,pd.DataFrame(jmsg, columns=jmsg.keys(), index=[0])], ignore_index=True)
-    if len(recentObjects)!=0:
-      recentUniqueObjects = recentObjects.sort_values("jdmax", ascending = False).drop_duplicates(subset=["objectId"], inplace=False, keep="first")
-    else: recentUniqueObjects = recentObjects
+  #print('Length Recent Objects: ', len(recentObjects))
+  if len(recentObjects)!=0:
+    recentUniqueObjects = recentObjects.sort_values("jdmax", ascending = False).drop_duplicates(subset=["objectId"], inplace=False, keep="first")
+  else: recentUniqueObjects = recentObjects
   #print(recentObjects)
   return recentUniqueObjects
 
@@ -282,8 +283,8 @@ def createNewTransientin4MOST(tableIn):
     #print(catDict['name'])
     uploadParams = {"uploadedfor_survey_id": 15,
     "name" : str(catDict['name']),
-    "ra": np.float(catDict['ra']),
-    "dec": min(40,np.float(catDict['dec'])),
+    "ra": np.float64(catDict['ra']),
+    "dec": min(40,np.float64(catDict['dec'])),
     "pmra": 0.0,"pmdec": 0.0,
     "epoch": 2000,
     "resolution": 1,
@@ -295,7 +296,7 @@ def createNewTransientin4MOST(tableIn):
     "extent_flag": 0,"extent_parameter": 0,"extent_index": 0,
     "mag": max(float(catDict['rmag']), float(catDict['rmag'])),"mag_err": 0,"mag_type": 'SDSS_r_AB',
     "reddening": 0,
-    "date_earliest": np.float(catDict['jdmax']),"date_latest": np.float(catDict['jdmax'])+4,
+    "date_earliest": np.float64(catDict['jdmax']),"date_latest": np.float64(catDict['jdmax'])+4,
     "t_exp_b": 60.,"t_exp_d": 60.,"t_exp_g": 60.,
     "is_active": catDict['active']}
 
@@ -315,8 +316,8 @@ def updateExisitingTransient(tableIn):
     #print(catDict['name'])
     uploadParams = {"uploadedfor_survey_id": 15,
     "name" : str(catDict['name']),
-    "ra": np.float(catDict['ra']),
-    "dec": min(40,np.float(catDict['dec'])),
+    "ra": np.float64(catDict['ra']),
+    "dec": min(40,np.float64(catDict['dec'])),
     "pmra": 0.0,"pmdec": 0.0,
     "epoch": 2000,
     "resolution": 1,
@@ -328,17 +329,17 @@ def updateExisitingTransient(tableIn):
     "extent_flag": 0,"extent_parameter": 0,"extent_index": 0,
     "mag": max(float(catDict['rmag']), float(catDict['rmag'])),"mag_err": 0,"mag_type": 'SDSS_r_AB',
     "reddening": 0,
-    "date_earliest": np.float(catDict['jdmax']),"date_latest": np.float(catDict['jdmax'])+4,
+    "date_earliest": np.float64(catDict['jdmax']),"date_latest": np.float64(catDict['jdmax'])+4,
     "t_exp_b": 60.,"t_exp_d": 60.,"t_exp_g": 60.,
     "is_active": catDict['active']}
 
-    
-    updatedObject = st.update_transient(pk=catDict['pk_4most'], data=uploadParams, printout=False) 
+    print(catDict['pk_4most'])
+    updatedObject = st.update_transient(pk=int(catDict['pk_4most']), data=uploadParams, printout=False) 
 
 @task
 def updateTiDESMasterwith4MOSTKey(newTable, cnx):
   newTable.columns = map(str.lower, newTable.columns)
-  newTable['pk_4most'] = newTable['pk_4most'].astype(int)
+  newTable['pk_4most'] = newTable['pk_4most'].astype(int).copy()
   newTable.to_sql('latest_4most', con=cnx, if_exists='replace', index=False)
   query = open('updateMasterWith4MOSTkey.sql')
   updates = cnx.execute(sqlalchemy.text(query.read()))
@@ -348,10 +349,11 @@ def updateTiDESMasterwith4MOSTKey(newTable, cnx):
 
 @flow
 def executeCommPipe():
+
   my_topic, group_id =  loadTopicSettings('devConfig')
 
   print(my_topic, group_id)
-  #group_id = 'test{}'.format(randrange(1000)) ## Comment this out when doing pipeline for real
+  group_id = 'test{}'.format(randrange(1000)) ## Comment this out when doing pipeline for real
   print('Using group_id', group_id) #We'll fix our Group ID in production, but for now we randomise it so we have a good selection of objects. 
 
 
@@ -394,7 +396,8 @@ def executeCommPipe():
     upsertToMaster(conn)
     deactivateUnobservedTransients(conn)
     toUpdate = prepare4MOSTUpdate(conn)
-    #print(toUpdate)
+    print('New Transients',len(toUpdate[toUpdate['pk_4most'].isnull()]))
+    print('Updating Transients',len(toUpdate[~toUpdate['pk_4most'].isnull()]))
     newTransients = createNewTransientin4MOST(toUpdate[toUpdate['pk_4most'].isnull()])
     updatedTransients = updateExisitingTransient(toUpdate[~toUpdate['pk_4most'].isnull()])
     #print(newTransients)
@@ -406,13 +409,14 @@ def executeCommPipe():
     
 
   
+lasairToken = loadLasairDetails('devConfig')
+L = lasair.lasair_client(lasairToken)
+
+inputCriteriaPath, selectFuncName =  loadSelectionFunctionDetails('devConfig')
+inputCriteriaOpen = yaml.load(open(inputCriteriaPath), Loader=yaml.SafeLoader)
+inputCriteriaName = inputCriteriaOpen[str(selectFuncName)]
+connect4MOST_API()
 
 if __name__ == "__main__":
-  lasairToken = loadLasairDetails('devConfig')
-  L = lasair.lasair_client(lasairToken)
 
-  inputCriteriaPath, selectFuncName =  loadSelectionFunctionDetails('devConfig')
-  inputCriteriaOpen = yaml.load(open(inputCriteriaPath), Loader=yaml.SafeLoader)
-  inputCriteriaName = inputCriteriaOpen[str(selectFuncName)]
-  connect4MOST_API()
   executeCommPipe()
