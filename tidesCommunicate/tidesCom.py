@@ -11,6 +11,7 @@ import sys
 #from prefect_sqlalchemy import DatabaseCredentials, AsyncDriver
 import sqlalchemy
 from io import StringIO
+import submit_transients as st
 
 # This is hardcoded for ZTF, will need to be changed for LSST as more filters are added.
 filterDict = {1:'g', 2:'r', 3:'i', 'g':1, 'r':2, 'i':3}
@@ -49,6 +50,14 @@ def loadTiDESdbSettings(key):
   dbDatabase = settingsOpen[key]['tidesDBdatabase']
   return dbUsername, dbPassword, dbDatabase
 
+def connect4MOST_API():
+  settingsOpen = yaml.load(open('./4mostAPIDetails.yaml'), Loader=yaml.SafeLoader)
+  st.SCHEMA = settingsOpen['connect']['schema']
+  st.USERNAME = settingsOpen['connect']['username']
+  st.PASSWORD = settingsOpen['connect']['password']
+  st.ACCESS_TOKEN = settingsOpen['connect']['access_token']
+
+
 @task
 def getDevBatch():
   """
@@ -78,7 +87,9 @@ def getLatestBatch(consumer):
       break
     jmsg = json.loads(msg.value())
     recentObjects = pd.concat([recentObjects,pd.DataFrame(jmsg, columns=jmsg.keys(), index=[0])], ignore_index=True)
-    recentUniqueObjects = recentObjects.sort_values("jdmax", ascending = False).drop_duplicates(subset=["objectId"], inplace=False, keep="first")
+    if len(recentObjects)!=0:
+      recentUniqueObjects = recentObjects.sort_values("jdmax", ascending = False).drop_duplicates(subset=["objectId"], inplace=False, keep="first")
+    else: recentUniqueObjects = recentObjects
   #print(recentObjects)
   return recentUniqueObjects
 
@@ -218,7 +229,7 @@ def sqlalchemy_credentials_flow():
 def sqlalchmey_engine():
   dbUsername, dbPassword, dbDatabase = loadTiDESdbSettings('devConfig')
   url = 'postgresql+psycopg2://'+str(dbUsername)+':'+str(dbPassword)+'@localhost:5432/'+str(dbDatabase)
-  engine = sqlalchemy.create_engine(url)
+  engine = sqlalchemy.create_engine(url,future=True)
   return engine
 
 @task
@@ -244,16 +255,103 @@ def createTransientStage(dataTable, cnx):
 @task
 def upsertToMaster(cnx):
   query = open('upsertTiDESstage.sql', 'r')
-  cnx.execute(query.read())
+  cnx.execute(sqlalchemy.text(query.read()))
   query.close()
 
+@task
+def deactivateUnobservedTransients(cnx):
+  query = open('deactivateUnobserved.sql')
+  cnx.execute(sqlalchemy.text(query.read()))
+
+
+@task
+def prepare4MOSTUpdate(cnx):
+  query = open('stage4MOSTupdates.sql')
+  updates = pd.read_sql(sqlalchemy.text(query.read()), con=cnx)
+  # row = cnx.execute(sqlalchemy.text(query.read()))
+  # print(row.mappings().all())
+  query.close()
+  return updates
+
+@task
+def createNewTransientin4MOST(tableIn):
+  if len(tableIn)==0:
+    return []
+  for index,row in tableIn.iterrows():
+    catDict = row.to_dict()
+    #print(catDict['name'])
+    uploadParams = {"uploadedfor_survey_id": 15,
+    "name" : str(catDict['name']),
+    "ra": np.float(catDict['ra']),
+    "dec": min(40,np.float(catDict['dec'])),
+    "pmra": 0.0,"pmdec": 0.0,
+    "epoch": 2000,
+    "resolution": 1,
+    "subsurvey": 'tides-sn',
+    "cadence": 1048576,
+    "template": 'SN_spec_specid56_snt1_phase5_redshift0.169.fits',
+    "ruleset": 'tides_snJuly2022',
+    "redshift_estimate": 0.1,"redshift_error": 0,
+    "extent_flag": 0,"extent_parameter": 0,"extent_index": 0,
+    "mag": max(float(catDict['rmag']), float(catDict['rmag'])),"mag_err": 0,"mag_type": 'SDSS_r_AB',
+    "reddening": 0,
+    "date_earliest": np.float(catDict['jdmax']),"date_latest": np.float(catDict['jdmax'])+4,
+    "t_exp_b": 60.,"t_exp_d": 60.,"t_exp_g": 60.,
+    "is_active": catDict['active']}
+
+    #print(uploadParams)
+    uppedObject = st.create_transient(data=uploadParams, printout=False) 
+    #print(uppedObject)
+    tableIn.loc[index,'pk_4most'] = np.int64(uppedObject['id'])
+  return tableIn
+   
+
+@task
+def updateExisitingTransient(tableIn):
+  if len(tableIn)==0:
+    return []
+  for index,row in tableIn.iterrows():
+    catDict = row.to_dict()
+    #print(catDict['name'])
+    uploadParams = {"uploadedfor_survey_id": 15,
+    "name" : str(catDict['name']),
+    "ra": np.float(catDict['ra']),
+    "dec": min(40,np.float(catDict['dec'])),
+    "pmra": 0.0,"pmdec": 0.0,
+    "epoch": 2000,
+    "resolution": 1,
+    "subsurvey": 'tides-sn',
+    "cadence": 1048576,
+    "template": 'SN_spec_specid56_snt1_phase5_redshift0.169.fits',
+    "ruleset": 'tides_snJuly2022',
+    "redshift_estimate": 0.1,"redshift_error": 0,
+    "extent_flag": 0,"extent_parameter": 0,"extent_index": 0,
+    "mag": max(float(catDict['rmag']), float(catDict['rmag'])),"mag_err": 0,"mag_type": 'SDSS_r_AB',
+    "reddening": 0,
+    "date_earliest": np.float(catDict['jdmax']),"date_latest": np.float(catDict['jdmax'])+4,
+    "t_exp_b": 60.,"t_exp_d": 60.,"t_exp_g": 60.,
+    "is_active": catDict['active']}
+
+    
+    updatedObject = st.update_transient(pk=catDict['pk_4most'], data=uploadParams, printout=False) 
+
+@task
+def updateTiDESMasterwith4MOSTKey(newTable, cnx):
+  newTable.columns = map(str.lower, newTable.columns)
+  newTable['pk_4most'] = newTable['pk_4most'].astype(int)
+  newTable.to_sql('latest_4most', con=cnx, if_exists='replace', index=False)
+  query = open('updateMasterWith4MOSTkey.sql')
+  updates = cnx.execute(sqlalchemy.text(query.read()))
+  # row = cnx.execute(sqlalchemy.text(query.read()))
+  # print(row.mappings().all())
+  query.close()
 
 @flow
 def executeCommPipe():
   my_topic, group_id =  loadTopicSettings('devConfig')
 
   print(my_topic, group_id)
-  group_id = 'test{}'.format(randrange(1000)) ## Comment this out when doing pipeline for real
+  #group_id = 'test{}'.format(randrange(1000)) ## Comment this out when doing pipeline for real
   print('Using group_id', group_id) #We'll fix our Group ID in production, but for now we randomise it so we have a good selection of objects. 
 
 
@@ -266,6 +364,11 @@ def executeCommPipe():
     print('!!! No Transients !!!')
     return None
   print('All transients: ', len(latestTransients))
+
+## DEV PURPOSES
+  #latestTransients = latestTransients.sample(n=20).copy() ## We just take the a random sample of 20 transients so it doesn't take for ever in testing!
+## DEV PURPOSES
+
   ztfNames = np.unique(latestTransients['objectId'])
   print('Unique transients: ', len(ztfNames))
 
@@ -282,12 +385,24 @@ def executeCommPipe():
   mergedDF = passFailResultsDFandMerge(resultPassFail, latestTransients) ## Pandas dataframe of all Lasair detections and pass/fail criteria
   #print(mergedDF)
 
-  cnx = sqlalchmey_engine() ## Create the connection to the TiDES DB
+  engine = sqlalchmey_engine() ## Create the connection to the TiDES DB
 
-  createTransientStage(mergedDF, cnx) ## Create a temporary table for the recent detections
+  createTransientStage(mergedDF, engine) ## Create a temporary table for the recent detections
 
-  with cnx.connect() as conn, conn.begin() :
+  #Starting the session with the local TiDES Database
+  with engine.connect() as conn, conn.begin() :
     upsertToMaster(conn)
+    deactivateUnobservedTransients(conn)
+    toUpdate = prepare4MOSTUpdate(conn)
+    #print(toUpdate)
+    newTransients = createNewTransientin4MOST(toUpdate[toUpdate['pk_4most'].isnull()])
+    updatedTransients = updateExisitingTransient(toUpdate[~toUpdate['pk_4most'].isnull()])
+    #print(newTransients)
+    if len(newTransients)==0:
+      print('No new transients to send to 4MOST')
+      return None
+    else:
+      updateTiDESMasterwith4MOSTKey(newTransients, conn)
     
 
   
@@ -299,5 +414,5 @@ if __name__ == "__main__":
   inputCriteriaPath, selectFuncName =  loadSelectionFunctionDetails('devConfig')
   inputCriteriaOpen = yaml.load(open(inputCriteriaPath), Loader=yaml.SafeLoader)
   inputCriteriaName = inputCriteriaOpen[str(selectFuncName)]
-
+  connect4MOST_API()
   executeCommPipe()
