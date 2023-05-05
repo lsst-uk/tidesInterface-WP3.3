@@ -2,6 +2,8 @@
 
 The goal of this deliverable is to establish a communication infrastructure to orchestrate the discovery of transients from LSST, compare the objects to the selection functions in D3.3.3 and then feed these objects to the 4MOST Transients API.
 
+![The Flow executing on prefect](FlowD334.gif)
+
 ## Requirements
 
 Along with several standard python libraries, the following are required to run this deliverable
